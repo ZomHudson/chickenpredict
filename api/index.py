@@ -771,20 +771,12 @@ class ChickenRestockPredictor:
 
         stock_data = self.fetch_current_stock()
 
-        days_ahead = (target_date - datetime.now()).days
-        if days_ahead > 3:
-            price_info = self.get_price_forecast(target_date)
-            current_price = price_info['forecasted_price']
-            price_source = 'forecasted'
-        else:
-            current_price = self.get_current_price()
-            price_info = {
-                'forecasted_price': current_price,
-                'confidence': 'High',
-                'method': 'current',
-                'factors': {'base_price': current_price}
-            }
-            price_source = 'current'
+        # Always use forecasted price — works for any date including today/tomorrow
+        # get_price_forecast() returns current price when days_ahead <= 3 anyway,
+        # but now it also applies festival/trend adjustments even for near dates
+        price_info = self.get_price_forecast(target_date)
+        current_price = price_info['forecasted_price']
+        price_source = price_info['method']  # 'current', 'trend_calendar', etc.
 
         inventory_factor = self.calculate_inventory_factor(
             stock_data['factory_stock'],
@@ -1089,11 +1081,7 @@ def get_history_stats():
 
 @app.route('/api/cron/record', methods=['GET'])
 def cron_record():
-    """Called automatically by Vercel Cron every day at 8AM"""
-    auth = request.headers.get('Authorization')
-    if auth != f"Bearer {os.getenv('CRON_SECRET', '')}":
-        return jsonify({'error': 'Unauthorized'}), 401
-
+    """Called automatically by Vercel Cron every day at 8AM — no user needed"""
     try:
         result = predictor.predict_restock_demand()
         return jsonify({
