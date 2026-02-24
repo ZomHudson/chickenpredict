@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
 from typing import Dict, List
 import json
@@ -13,6 +13,13 @@ from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 
 app = Flask(__name__)
 CORS(app)
+
+# Malaysia timezone UTC+8
+MY_TZ = timezone(timedelta(hours=8))
+
+def malaysia_now() -> datetime:
+    """Return current datetime in Malaysia timezone (UTC+8)"""
+    return datetime.now(MY_TZ)
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "ExFarmPrice.csv")
 
@@ -73,8 +80,8 @@ class MongoDBService:
                     return 0.0
 
             document = {
-                # When this record was saved
-                'recorded_at': datetime.utcnow(),
+                # When this record was saved (Malaysia time UTC+8)
+                'recorded_at': malaysia_now(),
 
                 # Prediction target
                 'target_date': prediction.get('target_date'),
@@ -134,7 +141,7 @@ class MongoDBService:
             return []
 
         try:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = malaysia_now() - timedelta(days=days)
             cursor = (
                 self.db['predictions']
                 .find(
@@ -162,7 +169,7 @@ class MongoDBService:
             return {}
 
         try:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = malaysia_now() - timedelta(days=days)
             pipeline = [
                 {'$match': {'recorded_at': {'$gte': cutoff}}},
                 {'$group': {
@@ -196,7 +203,7 @@ class MongoDBService:
             return {}
 
         try:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = malaysia_now() - timedelta(days=days)
             pipeline = [
                 {'$match': {'recorded_at': {'$gte': cutoff}}},
                 {'$group': {
@@ -230,7 +237,7 @@ class LiveCalendarService:
         cache_key = f"holidays_{year}"
 
         if cache_key in self.cache:
-            if datetime.now() < self.cache_expiry.get(cache_key, datetime.now()):
+            if malaysia_now() < self.cache_expiry.get(cache_key, malaysia_now()):
                 print(f"Using cached holidays for {year}")
                 return self.cache[cache_key]
 
@@ -262,7 +269,7 @@ class LiveCalendarService:
                     })
 
                 self.cache[cache_key] = holidays
-                self.cache_expiry[cache_key] = datetime.now() + timedelta(hours=24)
+                self.cache_expiry[cache_key] = malaysia_now() + timedelta(hours=24)
                 print(f"Successfully fetched {len(holidays)} holidays for {year}")
                 return holidays
             else:
@@ -309,7 +316,7 @@ class LiveCalendarService:
             }
 
         try:
-            current_year = datetime.now().year
+            current_year = malaysia_now().year
             target_year = target_date.year
 
             holidays = []
@@ -562,7 +569,7 @@ class ChickenRestockPredictor:
                 }
 
             current_price = float(df.iloc[-1]['Avg_Price'])
-            days_ahead = (target_date - datetime.now()).days
+            days_ahead = (target_date - malaysia_now()).days
 
             # For dates within 3 days, use current price directly
             if days_ahead <= 3:
@@ -760,7 +767,7 @@ class ChickenRestockPredictor:
 
     def predict_restock_demand(self, target_date: datetime = None) -> Dict:
         if target_date is None:
-            today = datetime.now()
+            today = malaysia_now()
             for i in range(7):
                 check_date = today + timedelta(days=i)
                 if check_date.weekday() in self.RESTOCK_DAYS:
@@ -854,7 +861,7 @@ class ChickenRestockPredictor:
 
     def predict_next_week(self) -> list:
         predictions = []
-        today = datetime.now()
+        today = malaysia_now()
 
         for i in range(14):
             check_date = today + timedelta(days=i)
@@ -874,7 +881,7 @@ class ChickenRestockPredictor:
             df = df.dropna(subset=['end_date'])
             df = df.sort_values('end_date')
 
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = malaysia_now() - timedelta(days=days)
             recent_df = df[df['end_date'] > cutoff_date]
 
             history = []
@@ -884,7 +891,7 @@ class ChickenRestockPredictor:
                     'price': float(row['Avg_Price'])
                 })
 
-            today = datetime.now()
+            today = malaysia_now()
             for i in range(1, 15):
                 forecast_date = today + timedelta(days=i)
                 price_info = self.get_price_forecast(forecast_date)
@@ -950,7 +957,7 @@ def get_price_forecast_route():
         if date_str:
             target_date = datetime.strptime(date_str, '%Y-%m-%d')
         else:
-            target_date = datetime.now() + timedelta(days=7)
+            target_date = malaysia_now() + timedelta(days=7)
 
         price_info = predictor.get_price_forecast(target_date)
         return jsonify({'success': True, 'data': price_info})
@@ -980,7 +987,7 @@ def get_alerts():
                 'type': 'critical',
                 'message': 'Critical stock level detected',
                 'detail': f"Current stock ({stock}) is below minimum threshold of 300 units",
-                'timestamp': datetime.now().isoformat()
+                'timestamp': malaysia_now().isoformat()
             })
 
         if stock < 500:
@@ -988,7 +995,7 @@ def get_alerts():
                 'type': 'warning',
                 'message': 'Low stock warning',
                 'detail': f"Stock level at {stock} units. Consider restocking soon.",
-                'timestamp': datetime.now().isoformat()
+                'timestamp': malaysia_now().isoformat()
             })
 
         if prediction['demand_level'] in ['High', 'Medium-High']:
@@ -996,7 +1003,7 @@ def get_alerts():
                 'type': 'info',
                 'message': f"{prediction['demand_level']} demand period approaching",
                 'detail': f"{prediction['recommendation']} Event: {prediction['calendar_event']['event_name']}",
-                'timestamp': datetime.now().isoformat()
+                'timestamp': malaysia_now().isoformat()
             })
 
         price_info = prediction['price_info']
@@ -1005,7 +1012,7 @@ def get_alerts():
                 'type': 'warning',
                 'message': 'High price forecast',
                 'detail': f"Ex-farm price forecasted at RM {price_info['price']:.2f} for {prediction['target_date']}",
-                'timestamp': datetime.now().isoformat()
+                'timestamp': malaysia_now().isoformat()
             })
 
         return jsonify({'success': True, 'data': alerts})
@@ -1016,7 +1023,7 @@ def get_alerts():
 @app.route('/api/calendar/holidays', methods=['GET'])
 def get_holidays():
     try:
-        year = int(request.args.get('year', datetime.now().year))
+        year = int(request.args.get('year', malaysia_now().year))
         holidays = predictor.calendar_service.get_malaysian_holidays(year)
 
         return jsonify({
@@ -1089,7 +1096,7 @@ def cron_record():
             'message': 'Prediction recorded automatically by cron',
             'demand_level': result['demand_level'],
             'target_date': result['target_date'],
-            'recorded_at': datetime.now().isoformat()
+            'recorded_at': malaysia_now().isoformat()
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1100,7 +1107,7 @@ def cron_record():
 def health_check():
     return jsonify({
         'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': malaysia_now().isoformat(),
         'calendar_api_configured': bool(os.getenv('CALENDARIFIC_API_KEY')),
         'mongodb_connected': mongo_service.connected
     })
