@@ -18,8 +18,8 @@ CORS(app)
 MY_TZ = timezone(timedelta(hours=8))
 
 def malaysia_now() -> datetime:
-    """Return current datetime in Malaysia timezone (UTC+8)"""
-    return datetime.now(MY_TZ)
+    """Return current datetime in Malaysia time (UTC+8) as naive datetime"""
+    return datetime.now(MY_TZ).replace(tzinfo=None)
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "ExFarmPrice.csv")
 
